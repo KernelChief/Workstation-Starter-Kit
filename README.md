@@ -22,7 +22,6 @@ The UI runs unprivileged and system changes are done through a **polkit-protecte
 - [🧩 Supported Platform](#-supported-platform)
 - [🧰 Included Features](#-included-features)
 - [🔐 Privilege & Security Model](#-privilege--security-model)
-- [🛠️ Build RPM](#️-build-rpm)
 - [❓ FAQ](#-faq)
 - [📜 License](#-license)
 
@@ -122,28 +121,6 @@ The in-app list is the source of truth.
 - Polkit action:
   - `org.workstationstarterkit.manager`
 - Authentication is requested only when needed
-
----
-
-## 🛠️ Build RPM
-
-Prerequisites:
-
-```bash
-sudo dnf install -y rpm-build rpmdevtools rsync tar python3-gobject gtk3 polkit
-rpmdev-setuptree
-```
-
-Build v1.0.0 example:
-
-```bash
-./src/packaging/build-rpm.sh 1.0.0
-```
-
-Output:
-
-- `~/rpmbuild/RPMS/noarch/workstation-starter-kit-1.0.0-1.fc43.noarch.rpm`
-- `~/rpmbuild/SRPMS/workstation-starter-kit-1.0.0-1.fc43.src.rpm`
 
 ---
 
