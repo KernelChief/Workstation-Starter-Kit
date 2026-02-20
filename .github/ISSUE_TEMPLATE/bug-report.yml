@@ -1,0 +1,80 @@
+name: "🚨 Bug / Issue Report"
+description: "Report a problem, breakage, or unexpected behavior."
+title: "Bug: [short summary]"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 🚨 Thanks for reporting an issue
+        Please include as much detail as possible so we can reproduce and fix it quickly.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How badly does this affect usage?
+      options:
+        - "🚫 Show-stopper (app unusable / blocks installs)"
+        - "⚠️ Major (core feature broken)"
+        - "🟡 Minor (workaround exists)"
+        - "📝 Cosmetic (UI/text issue)"
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution + Version
+      description: Fedora, Alma, Rocky, etc.
+      placeholder: "e.g., Fedora 43 KDE"
+    validations:
+      required: true
+
+  - type: input
+    id: desktop_env
+    attributes:
+      label: Desktop Environment
+      description: GNOME/KDE/XFCE/etc.
+      placeholder: "e.g., KDE Plasma"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Tell us exactly what you clicked/ran.
+      placeholder: |
+        1) Open Linux Starter Kit
+        2) Click Install on ...
+        3) Authentication prompt appears...
+        4) It fails with...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      placeholder: "What did you expect to happen?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      placeholder: "What actually happened?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Output
+      description: Paste the app Logs tab output or terminal output.
+      placeholder: "Paste logs here..."
+      render: shell
+    validations:
+      required: true

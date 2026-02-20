@@ -1,9 +1,0 @@
-# SPDX-License-Identifier: MIT
-[Desktop Entry]
-Name=Alma Driver Manager
-Comment=Install GPU/Wi-Fi drivers (MVP)
-Exec=alma-driver-manager
-Icon=computer
-Terminal=false
-Type=Application
-Categories=System;Settings;

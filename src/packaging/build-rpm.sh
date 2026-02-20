@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
 
-NAME="alma-driver-manager"
-VERSION="${1:-0.1}"
+NAME="workstation-starter-kit"
+VERSION="${1:-1.0}"
 
 # Ensure rpmbuild tree exists
 command -v rpmdev-setuptree >/dev/null 2>&1 || {
@@ -43,7 +43,7 @@ tar -C "${TMPDIR}" -czf "${TARBALL}" "${NAME}-${VERSION}"
 
 echo "Created source tarball: ${TARBALL}"
 
-rpmbuild -ba "${SPEC}" --define "version ${VERSION}"
+rpmbuild -ba "${SPEC}" --define "app_version ${VERSION}"
 
 echo "Done."
 echo "RPMs are in: ${HOME}/rpmbuild/RPMS/"

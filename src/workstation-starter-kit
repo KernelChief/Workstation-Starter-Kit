@@ -1,0 +1,691 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, GLib, Gdk
+
+import subprocess
+import threading
+from pathlib import Path
+from collections import deque
+
+SYSTEM_HELPER = "/usr/libexec/workstation-starter-kit-helper"
+LOCAL_HELPER = str((Path(__file__).resolve().parent / "workstation-starter-kit-helper"))
+
+PROTON_PASS_URL = "https://proton.me/download/pass/linux/proton-pass-1.34.2-1.x86_64.rpm"
+APPIMAGELAUNCHER_URL = "https://github.com/TheAssassin/AppImageLauncher/releases/download/v3.0.0-beta-3/appimagelauncher_3.0.0-beta-2-gha287.96cb937_x86_64.rpm"
+HEROIC_URL = "https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher/releases/download/v2.19.1/Heroic-2.19.1-linux-x86_64.AppImage"
+CURSEFORGE_URL = "https://curseforge.overwolf.com/downloads/curseforge-latest-linux.AppImage"
+ZOOM_URL = "https://zoom.us/client/latest/zoom_x86_64.rpm"
+CHROME_URL = "https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm"
+
+
+FEATURES = [
+    {
+        "id": "essential",
+        "name": "✨ Essential (Recommended)",
+        "desc": "Must-have base tools for a fresh setup",
+        "contains": [
+            "git, curl, zsh",
+            "python3-pip, python3-devel",
+            "cifs-utils, nfs-utils, samba-client",
+            "fastfetch, ncdu, fwupd",
+        ],
+        "install": [["install_packages", "git", "curl", "zsh", "python3-pip", "python3-devel", "cifs-utils", "nfs-utils", "samba-client", "fastfetch", "ncdu", "fwupd"]],
+        "remove": [["remove_packages", "cifs-utils", "nfs-utils", "samba-client", "fastfetch", "ncdu", "fwupd"]],
+        "check": {"kind": "rpm_all", "pkgs": ["git", "curl", "zsh", "python3-pip", "python3-devel", "cifs-utils", "nfs-utils", "samba-client", "fastfetch", "ncdu", "fwupd"]},
+    },
+    {
+        "id": "monitoring",
+        "name": "📊 Monitoring Tools (Recommended)",
+        "desc": "Easy tools to watch system health",
+        "contains": [
+            "htop, btop, nvtop",
+            "lm_sensors, smartmontools",
+        ],
+        "install": [["install_packages", "htop", "btop", "nvtop", "lm_sensors", "smartmontools"]],
+        "remove": [["remove_packages", "htop", "btop", "nvtop", "lm_sensors", "smartmontools"]],
+        "check": {"kind": "rpm_all", "pkgs": ["htop", "btop", "nvtop", "lm_sensors", "smartmontools"]},
+    },
+    {
+        "id": "zram_profile",
+        "name": "⚡ ZRAM Expansion (Recommended)",
+        "desc": "Smoother multitasking with smart memory compression",
+        "contains": [
+            "Creates /etc/systemd/zram-generator.conf",
+            "Uses zstd compression and high swap priority",
+        ],
+        "install": [["configure_zram"]],
+        "remove": [["remove_zram"]],
+        "check": {"kind": "zram"},
+    },
+    {
+        "id": "onepassword",
+        "name": "🔐 1Password",
+        "desc": "Install 1Password and get ready to sign in",
+        "install": [["ensure_1password_repo"], ["install_pkg", "1password"]],
+        "remove": [["remove_pkg", "1password"], ["remove_1password_repo"]],
+        "check": {"kind": "repo_and_pkg", "repo_prefix": "1password", "repo_file": "/etc/yum.repos.d/1password.repo", "pkg": "1password"},
+    },
+    {
+        "id": "proton_pass",
+        "name": "🔐 Proton Pass (Recommended)",
+        "desc": "Recommended password manager (RPM)",
+        "install": [["install_url_rpm", PROTON_PASS_URL]],
+        "remove": [["remove_pkg", "proton-pass"]],
+        "check": {"kind": "rpm", "pkg": "proton-pass"},
+    },
+    {
+        "id": "tailscale",
+        "name": "🌐 Tailscale",
+        "desc": "Private mesh VPN in one click",
+        "install": [["ensure_tailscale_repo"], ["install_pkg", "tailscale"], ["enable_service", "tailscaled"]],
+        "remove": [["disable_service", "tailscaled"], ["remove_pkg", "tailscale"], ["remove_tailscale_repo"]],
+        "check": {"kind": "tailscale"},
+    },
+    {
+        "id": "steam",
+        "name": "🎮 Steam",
+        "desc": "Install Steam for gaming",
+        "install": [["enable_steam_repo_if_present"], ["install_pkg", "steam"]],
+        "remove": [["remove_pkg", "steam"], ["disable_steam_repo_if_present"]],
+        "check": {"kind": "rpm", "pkg": "steam"},
+    },
+    {"id": "lutris", "name": "🎮 Lutris", "desc": "Gaming launcher and manager", "install": [["install_pkg", "lutris"]], "remove": [["remove_pkg", "lutris"]], "check": {"kind": "rpm", "pkg": "lutris"}},
+    {"id": "wine", "name": "🍷 Wine", "desc": "Windows compatibility layer", "install": [["install_pkg", "wine"]], "remove": [["remove_pkg", "wine"]], "check": {"kind": "rpm", "pkg": "wine"}},
+    {"id": "gamemode", "name": "⚙️ GameMode", "desc": "Performance tuning for games", "install": [["install_pkg", "gamemode"]], "remove": [["remove_pkg", "gamemode"]], "check": {"kind": "rpm", "pkg": "gamemode"}},
+    {"id": "gamescope", "name": "🖥️ Gamescope", "desc": "Micro-compositor for gaming", "install": [["install_pkg", "gamescope"]], "remove": [["remove_pkg", "gamescope"]], "check": {"kind": "rpm", "pkg": "gamescope"}},
+    {"id": "mangohud", "name": "📈 MangoHud", "desc": "In-game performance overlay", "install": [["install_pkg", "mangohud"]], "remove": [["remove_pkg", "mangohud"]], "check": {"kind": "rpm", "pkg": "mangohud"}},
+    {"id": "goverlay", "name": "🎛️ GOverlay", "desc": "MangoHud configuration UI", "install": [["install_pkg", "goverlay"]], "remove": [["remove_pkg", "goverlay"]], "check": {"kind": "rpm", "pkg": "goverlay"}},
+    {"id": "faugus_launcher", "name": "🚀 Faugus Launcher", "desc": "Set up Faugus with required dependencies", "install": [["install_faugus_launcher"]], "remove": [["remove_pkg", "faugus-launcher"]], "check": {"kind": "rpm", "pkg": "faugus-launcher"}},
+    {"id": "appimagelauncher", "name": "🧰 AppImageLauncher", "desc": "Open and manage AppImages easily", "install": [["install_url_rpm", APPIMAGELAUNCHER_URL]], "remove": [["remove_pkg", "appimagelauncher"]], "check": {"kind": "rpm", "pkg": "appimagelauncher"}},
+    {
+        "id": "heroic_appimage",
+        "name": "🕹️ Heroic Games Launcher (AppImage)",
+        "desc": "Downloads Heroic AppImage for AppImageLauncher integration",
+        "install": [["install_url_rpm", APPIMAGELAUNCHER_URL], ["install_appimage", HEROIC_URL, "Heroic-2.19.1-linux-x86_64.AppImage"]],
+        "remove": [["remove_appimage_glob", "*Heroic*.AppImage"]],
+        "check": {"kind": "appimage_glob", "pattern": "*Heroic*.AppImage"},
+    },
+    {
+        "id": "curseforge_appimage",
+        "name": "🧩 CurseForge (AppImage)",
+        "desc": "Downloads CurseForge AppImage for AppImageLauncher integration",
+        "install": [["install_url_rpm", APPIMAGELAUNCHER_URL], ["install_appimage", CURSEFORGE_URL, "curseforge-latest-linux.AppImage"]],
+        "remove": [["remove_appimage_glob", "*curse*forge*.AppImage"]],
+        "check": {"kind": "appimage_glob_any", "patterns": ["*curse*forge*.AppImage", "*Curse*Forge*.AppImage"]},
+    },
+    {"id": "easyeffects", "name": "🎚️ EasyEffects", "desc": "Audio effects and sound enhancement", "install": [["install_pkg", "easyeffects"]], "remove": [["remove_pkg", "easyeffects"]], "check": {"kind": "rpm", "pkg": "easyeffects"}},
+    {"id": "openrgb_tool", "name": "🌈 OpenRGB", "desc": "Control RGB devices", "install": [["install_pkg", "openrgb"]], "remove": [["remove_pkg", "openrgb"]], "check": {"kind": "rpm", "pkg": "openrgb"}},
+    {"id": "lact", "name": "🧪 LACT", "desc": "GPU control daemon and UI (COPR)", "install": [["install_lact"]], "remove": [["remove_lact"]], "check": {"kind": "pkg_and_service", "pkg": "lact", "service": "lactd"}},
+    {"id": "coolercontrol", "name": "🧊 CoolerControl", "desc": "Fan and cooling control service (COPR)", "install": [["install_coolercontrol"]], "remove": [["remove_coolercontrol"]], "check": {"kind": "pkg_and_service", "pkg": "coolercontrol", "service": "coolercontrold"}},
+    {"id": "obs_studio", "name": "📺 OBS Studio", "desc": "Recording and streaming studio", "install": [["install_pkg", "obs-studio"]], "remove": [["remove_pkg", "obs-studio"]], "check": {"kind": "rpm", "pkg": "obs-studio"}},
+    {"id": "btrfs_assistant", "name": "🗂️ Btrfs Assistant", "desc": "GUI tools for Btrfs management", "install": [["install_pkg", "btrfs-assistant"]], "remove": [["remove_pkg", "btrfs-assistant"]], "check": {"kind": "rpm", "pkg": "btrfs-assistant"}},
+    {"id": "vlc", "name": "🎬 VLC", "desc": "Versatile media player", "install": [["install_pkg", "vlc"]], "remove": [["remove_pkg", "vlc"]], "check": {"kind": "rpm", "pkg": "vlc"}},
+    {"id": "distrobox", "name": "📦 Distrobox", "desc": "Run containerized distros from terminal", "install": [["install_pkg", "distrobox"]], "remove": [["remove_pkg", "distrobox"]], "check": {"kind": "rpm", "pkg": "distrobox"}},
+    {"id": "zoom_rpm", "name": "📹 Zoom", "desc": "Install Zoom desktop client (RPM)", "install": [["install_url_rpm", ZOOM_URL]], "remove": [["remove_pkg", "zoom"]], "check": {"kind": "rpm", "pkg": "zoom"}},
+    {"id": "chrome", "name": "🌍 Google Chrome", "desc": "Install Chrome browser", "install": [["install_url_rpm", CHROME_URL]], "remove": [["remove_pkg", "google-chrome-stable"]], "check": {"kind": "rpm", "pkg": "google-chrome-stable"}},
+    {"id": "pulsemeeter_audio", "name": "🔊 Pulsemeeter (Audio)", "desc": "Advanced audio routing controls", "install": [["install_pulsemeeter"]], "remove": [["remove_pulsemeeter"]], "check": {"kind": "rpm", "pkg": "pulsemeeter"}},
+    {"id": "flatpak_spotify", "name": "🎵 Spotify (Flatpak)", "desc": "Music streaming app", "check": {"kind": "flatpak", "appid": "com.spotify.Client"}},
+    {"id": "flatpak_boxflat", "name": "🎮 Boxflat (Flatpak)", "desc": "Flatpak install", "check": {"kind": "flatpak", "appid": "io.github.wiiznokes.boxflat"}},
+    {"id": "flatpak_boxbuddy", "name": "📦 BoxBuddy (Flatpak)", "desc": "Distrobox desktop helper", "check": {"kind": "flatpak", "appid": "io.github.dvlv.boxbuddyrs"}},
+    {"id": "flatpak_slack", "name": "💼 Slack (Flatpak)", "desc": "Team chat app", "check": {"kind": "flatpak", "appid": "com.slack.Slack"}},
+    {"id": "flatpak_mattermost", "name": "🗨️ Mattermost (Flatpak)", "desc": "Self-hosted team chat", "check": {"kind": "flatpak", "appid": "com.mattermost.Desktop"}},
+    {"id": "flatpak_libreoffice", "name": "📄 LibreOffice (Flatpak)", "desc": "Office suite", "check": {"kind": "flatpak", "appid": "org.libreoffice.LibreOffice"}},
+    {"id": "flatpak_discord", "name": "💬 Discord (Flatpak)", "desc": "Voice and chat app", "check": {"kind": "flatpak", "appid": "com.discordapp.Discord"}},
+]
+
+FEATURE_BY_ID = {f["id"]: f for f in FEATURES}
+FLATPAK_FEATURE_IDS = [f["id"] for f in FEATURES if f["id"].startswith("flatpak_")]
+RECOMMENDED_BUNDLE = ["essential", "monitoring", "zram_profile"]
+GAMING_BUNDLE = [
+    "steam", "lutris", "wine", "gamemode", "gamescope", "mangohud", "goverlay",
+    "faugus_launcher", "appimagelauncher", "heroic_appimage", "curseforge_appimage",
+    "openrgb_tool", "lact", "coolercontrol", "obs_studio", "easyeffects",
+]
+APPS_BUNDLE = ["chrome", "flatpak_spotify", "flatpak_libreoffice", "flatpak_discord", "pulsemeeter_audio"]
+
+
+class WorkstationStarterKit(Gtk.Window):
+    def __init__(self):
+        super().__init__(title="Workstation Starter Kit")
+        self.set_default_size(1040, 730)
+        self.helper = SYSTEM_HELPER if Path(SYSTEM_HELPER).exists() else LOCAL_HELPER
+        self.rows = {}
+        self.bundle_running = False
+
+        self._apply_css()
+        self._build_ui()
+        self.append_log("Workstation Starter Kit ready.\n")
+        self.refresh_states()
+
+    def _apply_css(self):
+        p = Gtk.CssProvider()
+        p.load_from_data(b".boxed-list row{padding:8px;} .subtle{opacity:.72;}")
+        Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), p, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def _build_ui(self):
+        hb = Gtk.HeaderBar()
+        hb.set_show_close_button(True)
+        hb.props.title = "Workstation Starter Kit"
+        hb.props.subtitle = "Simple feature installer"
+        self.set_titlebar(hb)
+
+        r = Gtk.Button.new_from_icon_name("view-refresh", Gtk.IconSize.BUTTON)
+        r.connect("clicked", lambda *_: self.refresh_states())
+        hb.pack_end(r)
+
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        outer.set_border_width(12)
+        self.add(outer)
+
+        hero = Gtk.Frame()
+        hero.set_shadow_type(Gtk.ShadowType.IN)
+        hero_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        hero_box.set_border_width(12)
+        hero.add(hero_box)
+
+        t = Gtk.Label()
+        t.set_markup("<span size='x-large' weight='bold'>Pick a feature, app, or bundle and click Install</span>")
+        t.set_xalign(0)
+        hero_box.pack_start(t, False, False, 0)
+
+        s = Gtk.Label(label="Click any feature to install it. If already installed, the same button becomes Remove.")
+        s.set_xalign(0)
+        s.get_style_context().add_class("subtle")
+        hero_box.pack_start(s, False, False, 0)
+
+        selinux_hint = Gtk.Label(label="Highly recommended first: set SELinux to Permissive (permanent).")
+        selinux_hint.set_xalign(0)
+        selinux_hint.get_style_context().add_class("subtle")
+        hero_box.pack_start(selinux_hint, False, False, 0)
+
+        selinux_frame = Gtk.Frame(label="Run this first")
+        selinux_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        selinux_box.set_border_width(8)
+        selinux_frame.add(selinux_box)
+
+        self.selinux_button = Gtk.Button(label="🛡️ Highly Recommended: Set SELinux Permissive")
+        self.selinux_button.connect("clicked", lambda *_: self.apply_selinux_recommended())
+        selinux_box.pack_start(self.selinux_button, False, False, 0)
+        hero_box.pack_start(selinux_frame, False, False, 0)
+
+        bundle_hint = Gtk.Label(
+            label="Quick bundles: Recommended installs core essentials. Gaming Pack installs popular gaming tools and performance utilities."
+        )
+        bundle_hint.set_xalign(0)
+        bundle_hint.get_style_context().add_class("subtle")
+        hero_box.pack_start(bundle_hint, False, False, 0)
+
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        hero_box.pack_start(top, False, False, 0)
+
+        b1 = Gtk.Button(label="✨ Recommended Setup (Core Essentials)")
+        b1.connect("clicked", lambda *_: self.run_bundle("Recommended", RECOMMENDED_BUNDLE))
+        top.pack_start(b1, False, False, 0)
+
+        b2 = Gtk.Button(label="🎮 Gaming Pack (Games + Performance)")
+        b2.connect("clicked", lambda *_: self.run_bundle("Gaming", GAMING_BUNDLE))
+        top.pack_start(b2, False, False, 0)
+
+        outer.pack_start(hero, False, False, 0)
+
+        nb = Gtk.Notebook()
+        outer.pack_start(nb, True, True, 0)
+
+        features_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        features_page.set_border_width(6)
+        nb.append_page(features_page, Gtk.Label(label="Features"))
+
+        self.search = Gtk.SearchEntry()
+        self.search.set_placeholder_text("Filter features")
+        self.search.connect("search-changed", self._apply_filter)
+        features_page.pack_start(self.search, False, False, 0)
+
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.listbox.get_style_context().add_class("boxed-list")
+
+        sc = Gtk.ScrolledWindow()
+        sc.set_hexpand(True)
+        sc.set_vexpand(True)
+        sc.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        sc.add(self.listbox)
+        features_page.pack_start(sc, True, True, 0)
+
+        for f in FEATURES:
+            self._add_row(f)
+
+        logs_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        logs_page.set_border_width(6)
+        nb.append_page(logs_page, Gtk.Label(label="Logs"))
+
+        c = Gtk.Button(label="Clear logs")
+        c.connect("clicked", lambda *_: self.set_log(""))
+        logs_page.pack_start(c, False, False, 0)
+
+        self.textview = Gtk.TextView()
+        self.textview.set_editable(False)
+        self.textview.set_monospace(True)
+        self.textbuf = self.textview.get_buffer()
+        lsc = Gtk.ScrolledWindow()
+        lsc.set_hexpand(True)
+        lsc.set_vexpand(True)
+        lsc.add(self.textview)
+        logs_page.pack_start(lsc, True, True, 0)
+
+    def _add_row(self, f):
+        fid = f["id"]
+        row = Gtk.ListBoxRow()
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box.set_border_width(8)
+        row.add(box)
+
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        n = Gtk.Label(label=f["name"])
+        n.set_xalign(0)
+        d = Gtk.Label(label=f["desc"])
+        d.set_xalign(0)
+        d.get_style_context().add_class("subtle")
+        left.pack_start(n, False, False, 0)
+        left.pack_start(d, False, False, 0)
+        box.pack_start(left, True, True, 0)
+
+        st = Gtk.Label(label="Checking…")
+        box.pack_start(st, False, False, 0)
+
+        sp = Gtk.Spinner()
+        sp.set_no_show_all(True)
+        sp.hide()
+        box.pack_start(sp, False, False, 0)
+
+        b = Gtk.Button(label="Install")
+        b.connect("clicked", lambda *_: self.on_click(fid))
+        box.pack_start(b, False, False, 0)
+
+        details_btn = None
+        if f.get("contains"):
+            details_btn = Gtk.Button(label="Details")
+            details_btn.connect("clicked", lambda *_: self.show_feature_details(fid))
+            box.pack_start(details_btn, False, False, 0)
+
+        self.rows[fid] = {
+            "feature": f,
+            "row": row,
+            "status": st,
+            "spinner": sp,
+            "button": b,
+            "details": details_btn,
+            "busy": False,
+            "applied": False,
+        }
+        self.listbox.add(row)
+
+    def _apply_filter(self, *_):
+        q = self.search.get_text().strip().lower()
+        for data in self.rows.values():
+            f = data["feature"]
+            data["row"].set_visible(q in (f["name"] + " " + f["desc"]).lower())
+
+    def set_log(self, text):
+        self.textbuf.set_text(text)
+
+    def append_log(self, text):
+        end = self.textbuf.get_end_iter()
+        self.textbuf.insert(end, text)
+        mk = self.textbuf.create_mark(None, self.textbuf.get_end_iter(), True)
+        self.textview.scroll_mark_onscreen(mk)
+
+    def _rpm_installed(self, pkg):
+        return subprocess.run(["rpm", "-q", pkg], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+    def _repo_ids(self):
+        try:
+            p = subprocess.run(["dnf", "-q", "repolist", "--enabled"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            out = set()
+            for ln in p.stdout.splitlines():
+                ln = ln.strip()
+                if not ln or ln.lower().startswith("repo id") or ln.lower().startswith("repolist:"):
+                    continue
+                parts = ln.split()
+                if parts:
+                    out.add(parts[0])
+            return out
+        except Exception:
+            return set()
+
+    def _service_enabled(self, svc):
+        return subprocess.run(["systemctl", "is-enabled", svc], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+    def _flatpak_installed(self, appid):
+        r1 = subprocess.run(["flatpak", "info", "--system", appid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        r2 = subprocess.run(["flatpak", "info", "--user", appid], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        return r1 == 0 or r2 == 0
+
+    def _selinux_mode(self):
+        try:
+            return subprocess.check_output(["getenforce"], text=True).strip().lower()
+        except Exception:
+            return "unknown"
+
+    def _selinux_config_mode(self):
+        cfg = Path("/etc/selinux/config")
+        if not cfg.exists():
+            return "unknown"
+        try:
+            for line in cfg.read_text(errors="ignore").splitlines():
+                ln = line.strip()
+                if not ln or ln.startswith("#"):
+                    continue
+                if ln.upper().startswith("SELINUX="):
+                    return ln.split("=", 1)[1].strip().lower()
+        except Exception:
+            return "unknown"
+        return "unknown"
+
+    def _appimage_present(self, pattern):
+        appdirs = [Path.home() / "Applications", Path("/opt/appimages")]
+        return any(d.exists() and any(d.glob(pattern)) for d in appdirs)
+
+    def _feature_applied(self, fid, repos):
+        f = FEATURE_BY_ID[fid]
+        check = f.get("check", {})
+        kind = check.get("kind")
+
+        if kind == "rpm":
+            return self._rpm_installed(check["pkg"])
+        if kind == "rpm_all":
+            return all(self._rpm_installed(p) for p in check.get("pkgs", []))
+        if kind == "flatpak":
+            return self._flatpak_installed(check["appid"])
+        if kind == "zram":
+            p = Path("/etc/systemd/zram-generator.conf")
+            return p.exists() and "compression-algorithm = zstd" in p.read_text(errors="ignore")
+        if kind == "repo_and_pkg":
+            repo_prefix = check.get("repo_prefix", "")
+            repo_file = check.get("repo_file", "")
+            has_repo = (repo_prefix and repo_prefix in repos) or (repo_file and Path(repo_file).exists())
+            return has_repo and self._rpm_installed(check["pkg"])
+        if kind == "tailscale":
+            has_repo = any(r.startswith("tailscale") for r in repos) or Path("/etc/yum.repos.d/tailscale.repo").exists()
+            return has_repo and self._rpm_installed("tailscale") and self._service_enabled("tailscaled")
+        if kind == "pkg_and_service":
+            return self._rpm_installed(check["pkg"]) and self._service_enabled(check["service"])
+        if kind == "appimage_glob":
+            return self._appimage_present(check["pattern"])
+        if kind == "appimage_glob_any":
+            return any(self._appimage_present(p) for p in check.get("patterns", []))
+        return False
+
+    def refresh_states(self):
+        repos = self._repo_ids()
+        on = 0
+        total = len(self.rows)
+        for fid, d in self.rows.items():
+            applied = self._feature_applied(fid, repos)
+            d["applied"] = applied
+            if applied:
+                on += 1
+                d["status"].set_text("✅ Applied")
+                d["button"].set_label("Remove")
+            else:
+                d["status"].set_text("➕ Available")
+                d["button"].set_label("Install")
+            if not d["busy"]:
+                d["button"].set_sensitive(not self.bundle_running)
+        if hasattr(self, "selinux_button"):
+            runtime_mode = self._selinux_mode()
+            config_mode = self._selinux_config_mode()
+            if runtime_mode == "disabled" or config_mode == "disabled":
+                self.selinux_button.set_label("🛡️ SELinux Disabled ✅")
+                self.selinux_button.set_sensitive(False)
+            elif runtime_mode == "permissive" or config_mode == "permissive":
+                self.selinux_button.set_label("🛡️ SELinux Permissive ✅")
+                self.selinux_button.set_sensitive(False)
+            else:
+                self.selinux_button.set_label("🛡️ Highly Recommended: Set SELinux Permissive")
+                self.selinux_button.set_sensitive(not self.bundle_running)
+        self._apply_filter()
+
+    def apply_selinux_recommended(self):
+        if self.bundle_running:
+            return
+        runtime_mode = self._selinux_mode()
+        config_mode = self._selinux_config_mode()
+        if runtime_mode in ("permissive", "disabled") or config_mode in ("permissive", "disabled"):
+            return
+        mode_choice = "permissive"
+        if runtime_mode == "enforcing" or config_mode == "enforcing":
+            dlg = Gtk.MessageDialog(
+                parent=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.NONE,
+                text="SELinux is Enforcing",
+            )
+            dlg.format_secondary_text(
+                "Choose the permanent SELinux mode you want to apply:\n\n"
+                "• Permissive: SELinux stays on but does not block actions\n"
+                "• Disabled: SELinux is fully disabled\n\n"
+                "Both options update /etc/selinux/config permanently."
+            )
+            dlg.add_button("Cancel", 0)
+            dlg.add_button("Set Permissive", 1)
+            dlg.add_button("Set Disabled", 2)
+            resp = dlg.run()
+            dlg.destroy()
+            if resp == 1:
+                mode_choice = "permissive"
+            elif resp == 2:
+                mode_choice = "disabled"
+            else:
+                return
+        else:
+            dlg = Gtk.MessageDialog(
+                parent=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK_CANCEL,
+                text="Apply SELinux Permissive permanently?",
+            )
+            dlg.format_secondary_text(
+                "This writes SELINUX=permissive in /etc/selinux/config and applies permissive now.\n"
+                "This is a permanent change until you manually switch back."
+            )
+            resp = dlg.run()
+            dlg.destroy()
+            if resp != Gtk.ResponseType.OK:
+                return
+
+        self._toggle_buttons(False)
+        self.selinux_button.set_sensitive(False)
+        self._run_helper(["set_selinux_mode", mode_choice], on_done=self._selinux_done)
+
+    def _selinux_done(self):
+        self._toggle_buttons(True)
+        self.selinux_button.set_sensitive(True)
+        self.refresh_states()
+
+    def _pick_flatpak_scope(self, appname):
+        dlg = Gtk.MessageDialog(parent=self, flags=0, message_type=Gtk.MessageType.QUESTION, buttons=Gtk.ButtonsType.NONE, text=f"Install {appname} via Flatpak")
+        dlg.format_secondary_text("Install for current user only, or system-wide for all users?")
+        dlg.add_button("User", 1)
+        dlg.add_button("System", 2)
+        dlg.add_button("Cancel", 0)
+        resp = dlg.run()
+        dlg.destroy()
+        if resp == 1:
+            return "user"
+        if resp == 2:
+            return "system"
+        return None
+
+    def on_click(self, fid):
+        if self.bundle_running:
+            return
+        d = self.rows[fid]
+        if d["busy"]:
+            return
+
+        if fid in FLATPAK_FEATURE_IDS:
+            appid = FEATURE_BY_ID[fid]["check"]["appid"]
+            if d["applied"]:
+                actions = [["remove_flatpak_app", appid]]
+                status = "Removing…"
+            else:
+                scope = self._pick_flatpak_scope(d["feature"]["name"])
+                if not scope:
+                    return
+                actions = [["install_flatpak_app", appid, scope]]
+                status = "Installing…"
+        else:
+            actions = d["feature"].get("remove") if d["applied"] else d["feature"].get("install")
+            if not actions:
+                return
+            status = "Removing…" if d["applied"] else "Installing…"
+
+        self._set_busy(fid, True, status)
+        self._run_action_sequence(actions, on_done=lambda: self._done(fid))
+
+    def _set_busy(self, fid, busy, status=None):
+        d = self.rows[fid]
+        d["busy"] = busy
+        d["button"].set_sensitive(not busy and not self.bundle_running)
+        if status:
+            d["status"].set_text(status)
+        if busy:
+            d["spinner"].show()
+            d["spinner"].start()
+        else:
+            d["spinner"].stop()
+            d["spinner"].hide()
+
+    def _done(self, fid):
+        self._set_busy(fid, False)
+        self.refresh_states()
+
+    def _run_action_sequence(self, actions, on_done=None):
+        queue = [a for a in actions if a]
+
+        def step(i=0):
+            if i >= len(queue):
+                if on_done:
+                    on_done()
+                return
+            self._run_helper(queue[i], on_done=lambda: step(i + 1))
+
+        step()
+
+    def run_bundle(self, name, ids):
+        if self.bundle_running:
+            return
+        if not self._confirm_bundle(name, ids):
+            return
+        self.bundle_running = True
+        self.append_log(f"\n== Running bundle: {name} ==\n")
+        self._toggle_buttons(False)
+
+        repos = self._repo_ids()
+        queue = [i for i in ids if i in self.rows and not self._feature_applied(i, repos)]
+
+        def step(i=0):
+            if i >= len(queue):
+                self.bundle_running = False
+                self.append_log(f"== Bundle complete: {name} ==\n")
+                self.refresh_states()
+                self._toggle_buttons(True)
+                return
+
+            fid = queue[i]
+            f = FEATURE_BY_ID[fid]
+            if fid in FLATPAK_FEATURE_IDS:
+                actions = [["install_flatpak_app", f["check"]["appid"], "system"]]
+            else:
+                actions = f.get("install", [])
+
+            self._set_busy(fid, True, "Installing…")
+
+            def after_feature():
+                self._set_busy(fid, False)
+                self.refresh_states()
+                step(i + 1)
+
+            self._run_action_sequence(actions, on_done=after_feature)
+
+        step()
+
+    def _confirm_bundle(self, name, ids):
+        labels = [self.rows[i]["feature"]["name"] for i in ids if i in self.rows]
+        msg = "This will apply:\n\n- " + "\n- ".join(labels)
+        dlg = Gtk.MessageDialog(
+            parent=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.OK_CANCEL,
+            text=f"Run {name} bundle?",
+        )
+        dlg.format_secondary_text(msg + "\n\nAdmin password is needed for system changes.")
+        resp = dlg.run()
+        dlg.destroy()
+        return resp == Gtk.ResponseType.OK
+
+    def show_feature_details(self, fid):
+        f = FEATURE_BY_ID.get(fid, {})
+        items = f.get("contains", [])
+        details = "\n".join(f"• {line}" for line in items) if items else "No extra details available."
+        dlg = Gtk.MessageDialog(
+            parent=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=f"{f.get('name', 'Feature')} includes:",
+        )
+        dlg.format_secondary_text(details)
+        dlg.run()
+        dlg.destroy()
+
+    def _toggle_buttons(self, enabled):
+        for d in self.rows.values():
+            if not d["busy"]:
+                d["button"].set_sensitive(enabled)
+
+    def _run_helper(self, args, on_done=None):
+        if not Path(self.helper).exists():
+            self.append_log(f"ERROR: Helper not found: {self.helper}\n")
+            if on_done:
+                on_done()
+            return
+        cmd = ["pkexec", self.helper] + args
+        self.append_log("\n$ " + " ".join(cmd) + "\n")
+
+        def worker():
+            last = deque(maxlen=40)
+            try:
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+                assert p.stdout is not None
+                for line in p.stdout:
+                    last.append(line)
+                    GLib.idle_add(self.append_log, line)
+                rc = p.wait()
+                GLib.idle_add(self.append_log, f"[exit code: {rc}]\n")
+                if rc != 0 and last:
+                    GLib.idle_add(self.append_log, "Failed: " + last[-1])
+            except Exception as e:
+                GLib.idle_add(self.append_log, f"ERROR: {e}\n")
+            finally:
+                if on_done:
+                    GLib.idle_add(on_done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+
+def main():
+    win = WorkstationStarterKit()
+    win.connect("destroy", Gtk.main_quit)
+    win.show_all()
+    Gtk.main()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,349 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+
+action="${1:-}"
+
+log() { echo "[workstation-starter-kit-helper] $*"; }
+
+pkg_mgr() {
+  if command -v dnf >/dev/null 2>&1; then
+    echo "dnf"
+  elif command -v yum >/dev/null 2>&1; then
+    echo "yum"
+  else
+    echo ""
+  fi
+}
+
+PM="$(pkg_mgr)"
+[[ -n "${PM}" ]] || { echo "ERROR: dnf/yum not found" >&2; exit 10; }
+
+pm_install() { "${PM}" -y install "$@"; }
+pm_remove() { "${PM}" -y remove "$@"; }
+
+invoking_user_home() {
+  if [[ -n "${PKEXEC_UID:-}" ]]; then
+    getent passwd "${PKEXEC_UID}" | cut -d: -f6
+  fi
+}
+
+invoking_user_name() {
+  if [[ -n "${PKEXEC_UID:-}" ]]; then
+    getent passwd "${PKEXEC_UID}" | cut -d: -f1
+  fi
+}
+
+appimage_target_dir() {
+  local home
+  home="$(invoking_user_home)"
+  if [[ -n "${home}" && -d "${home}" ]]; then
+    echo "${home}/Applications"
+  else
+    echo "/opt/appimages"
+  fi
+}
+
+fix_appimage_owner() {
+  local path="${1:-}"
+  local uid="${PKEXEC_UID:-}"
+  local uname
+  uname="$(invoking_user_name)"
+  [[ -n "${path}" && -e "${path}" && -n "${uid}" && -n "${uname}" ]] || return 0
+  chown "${uid}:$(id -g "${uname}")" "${path}" || true
+}
+
+ensure_1password_repo() {
+  rpm --import https://downloads.1password.com/linux/keys/1password.asc
+  cat >/etc/yum.repos.d/1password.repo <<'REPO'
+[1password]
+name=1Password Stable Feed
+baseurl=https://downloads.1password.com/linux/rpm/stable/$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://downloads.1password.com/linux/keys/1password.asc
+REPO
+  chmod 0644 /etc/yum.repos.d/1password.repo
+}
+
+ensure_tailscale_repo() {
+  curl -fsSL https://pkgs.tailscale.com/stable/fedora/tailscale.repo -o /etc/yum.repos.d/tailscale.repo
+  chmod 0644 /etc/yum.repos.d/tailscale.repo
+}
+
+enable_crb() {
+  if dnf -y config-manager --set-enabled crb >/dev/null 2>&1; then
+    log "Enabled: crb"
+  elif dnf -y config-manager --set-enabled powertools >/dev/null 2>&1; then
+    log "Enabled: powertools"
+  else
+    echo "ERROR: Could not enable CRB/powertools automatically." >&2
+    exit 4
+  fi
+}
+
+enable_epel() {
+  pm_install epel-release
+}
+
+enable_steam_repo_if_present() {
+  [[ -f /etc/yum.repos.d/rpmfusion-nonfree-steam.repo ]] || return 0
+  sed -i 's/^enabled=.*/enabled=1/' /etc/yum.repos.d/rpmfusion-nonfree-steam.repo || true
+}
+
+disable_steam_repo_if_present() {
+  [[ -f /etc/yum.repos.d/rpmfusion-nonfree-steam.repo ]] || return 0
+  sed -i 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/rpmfusion-nonfree-steam.repo || true
+}
+
+enable_copr() {
+  local repo="${1:-}"
+  [[ -n "${repo}" ]] || { echo "ERROR: missing copr repo" >&2; exit 2; }
+  dnf -y copr enable "${repo}" || true
+}
+
+install_packages() {
+  [[ "$#" -gt 0 ]] || { echo "ERROR: missing package names" >&2; exit 2; }
+  pm_install "$@"
+}
+
+remove_packages() {
+  [[ "$#" -gt 0 ]] || { echo "ERROR: missing package names" >&2; exit 2; }
+  pm_remove "$@" || true
+}
+
+install_url_rpm() {
+  local url="${1:-}"
+  [[ -n "${url}" ]] || { echo "ERROR: missing rpm url" >&2; exit 2; }
+  pm_install "${url}" || true
+}
+
+configure_zram() {
+  cat >/etc/systemd/zram-generator.conf <<'CONF'
+[zram0]
+zram-size = min(ram / 2, 16384)
+compression-algorithm = zstd
+swap-priority = 150
+CONF
+  systemctl daemon-reload || true
+  systemctl restart systemd-zram-setup@zram0.service || true
+}
+
+remove_zram() {
+  rm -f /etc/systemd/zram-generator.conf
+  systemctl daemon-reload || true
+  systemctl restart systemd-zram-setup@zram0.service || true
+}
+
+set_selinux_mode() {
+  local mode="${1:-}"
+  [[ -n "${mode}" ]] || { echo "ERROR: missing selinux mode" >&2; exit 2; }
+  case "${mode}" in
+    permissive)
+      sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config || true
+      command -v setenforce >/dev/null 2>&1 && setenforce 0 || true
+      ;;
+    enforcing)
+      sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config || true
+      command -v setenforce >/dev/null 2>&1 && setenforce 1 || true
+      ;;
+    disabled)
+      sed -i 's/^SELINUX=.*/SELINUX=disabled/' /etc/selinux/config || true
+      command -v setenforce >/dev/null 2>&1 && setenforce 0 || true
+      ;;
+    *)
+      echo "ERROR: unsupported selinux mode: ${mode}" >&2
+      exit 2
+      ;;
+  esac
+}
+
+enable_service() {
+  local svc="${1:-}"
+  [[ -n "${svc}" ]] || { echo "ERROR: missing service name" >&2; exit 2; }
+  systemctl enable --now "${svc}" || true
+}
+
+disable_service() {
+  local svc="${1:-}"
+  [[ -n "${svc}" ]] || { echo "ERROR: missing service name" >&2; exit 2; }
+  systemctl disable --now "${svc}" || true
+}
+
+install_appimage() {
+  local url="${1:-}"
+  local filename="${2:-}"
+  [[ -n "${url}" && -n "${filename}" ]] || { echo "ERROR: missing appimage url/filename" >&2; exit 2; }
+  local target_dir path
+  target_dir="$(appimage_target_dir)"
+  path="${target_dir}/${filename}"
+  install -d -m 0755 "${target_dir}"
+  curl -fL "${url}" -o "${path}"
+  chmod 0755 "${path}"
+  fix_appimage_owner "${path}"
+}
+
+remove_appimage_glob() {
+  local pattern="${1:-}"
+  [[ -n "${pattern}" ]] || { echo "ERROR: missing appimage glob pattern" >&2; exit 2; }
+  local home
+  home="$(invoking_user_home)"
+  find /opt/appimages -maxdepth 1 -type f -name "${pattern}" -delete 2>/dev/null || true
+  if [[ -n "${home}" ]]; then
+    find "${home}/Applications" -maxdepth 1 -type f -name "${pattern}" -delete 2>/dev/null || true
+  fi
+}
+
+group_packages() {
+  local group="${1:-}"
+  case "${group}" in
+    essential)
+      echo "git curl zsh python3-pip python3-devel cifs-utils nfs-utils samba-client fastfetch ncdu fwupd chrony irqbalance"
+      ;;
+    monitoring)
+      echo "htop btop nvtop lm_sensors smartmontools"
+      ;;
+    gaming)
+      echo "steam lutris wine gamemode gamescope mangohud goverlay piper openrgb"
+      ;;
+    *)
+      echo ""
+      ;;
+  esac
+}
+
+install_group() {
+  local group="${1:-}"
+  local pkgs
+  pkgs="$(group_packages "${group}")"
+  [[ -n "${pkgs}" ]] || { echo "ERROR: unknown group: ${group}" >&2; exit 2; }
+  if [[ "${group}" == "gaming" ]]; then
+    enable_steam_repo_if_present
+  fi
+  # shellcheck disable=SC2086
+  pm_install ${pkgs}
+}
+
+remove_group() {
+  local group="${1:-}"
+  local pkgs
+  pkgs="$(group_packages "${group}")"
+  [[ -n "${pkgs}" ]] || { echo "ERROR: unknown group: ${group}" >&2; exit 2; }
+  # shellcheck disable=SC2086
+  pm_remove ${pkgs} || true
+  if [[ "${group}" == "gaming" ]]; then
+    disable_steam_repo_if_present
+  fi
+}
+
+remove_1password_repo() {
+  rm -f /etc/yum.repos.d/1password.repo
+}
+
+remove_tailscale_repo() {
+  rm -f /etc/yum.repos.d/tailscale.repo
+}
+
+install_faugus_launcher() {
+  pm_install kernel-modules-extra dkms --refresh || true
+  enable_copr "faugus/faugus-launcher"
+  pm_install faugus-launcher || true
+}
+
+install_lact() {
+  enable_copr "ilyaz/LACT"
+  pm_install lact || true
+  enable_service lactd
+}
+
+remove_lact() {
+  disable_service lactd
+  pm_remove lact || true
+}
+
+install_coolercontrol() {
+  pm_install dnf-plugins-core || true
+  enable_copr "codifryed/CoolerControl"
+  pm_install coolercontrol || true
+  enable_service coolercontrold
+}
+
+remove_coolercontrol() {
+  disable_service coolercontrold
+  pm_remove coolercontrol || true
+}
+
+install_pulsemeeter() {
+  pm_install pulsemeeter || python3 -m pip install --upgrade pulsemeeter || true
+}
+
+remove_pulsemeeter() {
+  pm_remove pulsemeeter || true
+  python3 -m pip uninstall -y pulsemeeter || true
+}
+
+install_flatpak_app() {
+  local appid="${1:-}"
+  local scope="${2:-system}"
+  [[ -n "${appid}" ]] || { echo "ERROR: missing appid" >&2; exit 2; }
+  command -v flatpak >/dev/null 2>&1 || pm_install flatpak
+  if [[ "${scope}" == "user" ]]; then
+    flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y --user flathub "${appid}"
+  else
+    flatpak remote-add --if-not-exists --system flathub https://flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y --system flathub "${appid}"
+  fi
+}
+
+remove_flatpak_app() {
+  local appid="${1:-}"
+  [[ -n "${appid}" ]] || { echo "ERROR: missing appid" >&2; exit 2; }
+  command -v flatpak >/dev/null 2>&1 || exit 0
+  flatpak uninstall -y --system "${appid}" || true
+  flatpak uninstall -y --user "${appid}" || true
+}
+
+case "${action}" in
+  enable_crb) enable_crb ;;
+  enable_epel) enable_epel ;;
+  enable_copr) enable_copr "${2:-}" ;;
+  enable_steam_repo_if_present) enable_steam_repo_if_present ;;
+  disable_steam_repo_if_present) disable_steam_repo_if_present ;;
+  install_group) install_group "${2:-}" ;;
+  remove_group) remove_group "${2:-}" ;;
+  install_pkg) pm_install "${2:-}" ;;
+  remove_pkg) pm_remove "${2:-}" || true ;;
+  install_pkg_url) install_url_rpm "${2:-}" ;;
+  install_packages) shift; install_packages "$@" ;;
+  remove_packages) shift; remove_packages "$@" ;;
+  install_url_rpm) install_url_rpm "${2:-}" ;;
+  configure_zram) configure_zram ;;
+  remove_zram) remove_zram ;;
+  set_selinux_mode) set_selinux_mode "${2:-}" ;;
+  enable_service) enable_service "${2:-}" ;;
+  disable_service) disable_service "${2:-}" ;;
+  ensure_1password_repo) ensure_1password_repo ;;
+  remove_1password_repo) remove_1password_repo ;;
+  ensure_tailscale_repo) ensure_tailscale_repo ;;
+  remove_tailscale_repo) remove_tailscale_repo ;;
+  install_faugus_launcher) install_faugus_launcher ;;
+  install_lact) install_lact ;;
+  remove_lact) remove_lact ;;
+  install_coolercontrol) install_coolercontrol ;;
+  remove_coolercontrol) remove_coolercontrol ;;
+  install_pulsemeeter) install_pulsemeeter ;;
+  remove_pulsemeeter) remove_pulsemeeter ;;
+  install_appimage) install_appimage "${2:-}" "${3:-}" ;;
+  remove_appimage_glob) remove_appimage_glob "${2:-}" ;;
+  install_flatpak_app) install_flatpak_app "${2:-}" "${3:-system}" ;;
+  remove_flatpak_app) remove_flatpak_app "${2:-}" ;;
+  *)
+    cat >&2 <<'USAGE'
+Usage: workstation-starter-kit-helper <action> [args]
+USAGE
+    exit 1
+    ;;
+esac
+
+log "Done: ${action}"

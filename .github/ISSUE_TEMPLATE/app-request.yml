@@ -1,0 +1,68 @@
+name: "➕ App / Offer Request"
+description: "Request a new app, package, or setup offer to be added."
+title: "App Request: [name]"
+labels: ["app-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## ➕ Request a new app/offer
+        Linux Starter Kit focuses on reliable one-click setup actions for RPM-based systems.
+        Please include official source links and install details.
+
+  - type: input
+    id: app_name
+    attributes:
+      label: App / Offer Name
+      placeholder: "e.g., Proton VPN"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: Preferred Install Method
+      options:
+        - "DNF package (official/system repos)"
+        - "Vendor RPM URL"
+        - "Flatpak"
+        - "AppImage"
+        - "Other / Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: official_source
+    attributes:
+      label: Official Source / Download Page
+      placeholder: "https://example.com/download"
+    validations:
+      required: true
+
+  - type: textarea
+    id: install_notes
+    attributes:
+      label: Install Notes
+      description: Dependencies, repos, services, caveats, conflicts, etc.
+      placeholder: |
+        - Requires repo X enabled
+        - Needs package Y first
+        - Starts service Z
+    validations:
+      required: false
+
+  - type: input
+    id: distro_target
+    attributes:
+      label: Target Distro(s)
+      placeholder: "e.g., Fedora 43, AlmaLinux 10, Rocky 9"
+    validations:
+      required: false
+
+  - type: textarea
+    id: why_needed
+    attributes:
+      label: Why this matters
+      placeholder: "Describe your use-case and why this should be part of Linux Starter Kit."
+    validations:
+      required: true
