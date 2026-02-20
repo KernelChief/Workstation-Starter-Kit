@@ -1,7 +1,7 @@
 # 🛠️ Workstation Starter Kit
 
-[![Last Commit](https://img.shields.io/github/last-commit/KernelChief/alma-driver-manager)](https://github.com/KernelChief/alma-driver-manager/commits)
-[![Repo Size](https://img.shields.io/github/repo-size/KernelChief/alma-driver-manager)](https://github.com/KernelChief/alma-driver-manager)
+[![Last Commit](https://img.shields.io/github/last-commit/KernelChief/Workstation-Starter-Kit)](https://github.com/KernelChief/Workstation-Starter-Kit/commits)
+[![Repo Size](https://img.shields.io/github/repo-size/KernelChief/Workstation-Starter-Kit)](https://github.com/KernelChief/Workstation-Starter-Kit)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Made%20with-Python-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Shell](https://img.shields.io/badge/Script-Shell-4EAA25?logo=gnu-bash&logoColor=white)](https://www.gnu.org/software/bash/)
