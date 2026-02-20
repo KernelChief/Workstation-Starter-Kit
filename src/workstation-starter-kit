@@ -138,7 +138,7 @@ FEATURES = [
         "check": {"kind": "appimage_glob_any", "patterns": ["*curse*forge*.AppImage", "*Curse*Forge*.AppImage"]},
     },
     {"id": "easyeffects", "name": "🎚️ EasyEffects", "desc": "Audio effects and sound enhancement", "install": [["install_pkg", "easyeffects"]], "remove": [["remove_pkg", "easyeffects"]], "check": {"kind": "rpm", "pkg": "easyeffects"}},
-    {"id": "openrgb_tool", "name": "🌈 OpenRGB", "desc": "Control RGB devices", "install": [["install_pkg", "openrgb"]], "remove": [["remove_pkg", "openrgb"]], "check": {"kind": "rpm", "pkg": "openrgb"}},
+    {"id": "openrgbtool", "name": "🌈 OpenRGB", "desc": "Control RGB devices", "install": [["install_pkg", "openrgb"]], "remove": [["remove_pkg", "openrgb"]], "check": {"kind": "rpm", "pkg": "openrgb"}},
     {"id": "lact", "name": "🧪 LACT", "desc": "GPU control daemon and UI (COPR)", "install": [["install_lact"]], "remove": [["remove_lact"]], "check": {"kind": "pkg_and_service", "pkg": "lact", "service": "lactd"}},
     {"id": "coolercontrol", "name": "🧊 CoolerControl", "desc": "Fan and cooling control service (COPR)", "install": [["install_coolercontrol"]], "remove": [["remove_coolercontrol"]], "check": {"kind": "pkg_and_service", "pkg": "coolercontrol", "service": "coolercontrold"}},
     {"id": "obs_studio", "name": "📺 OBS Studio", "desc": "Recording and streaming studio", "install": [["install_pkg", "obs-studio"]], "remove": [["remove_pkg", "obs-studio"]], "check": {"kind": "rpm", "pkg": "obs-studio"}},
