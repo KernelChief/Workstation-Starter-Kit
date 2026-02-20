@@ -1,0 +1,130 @@
+name: RPM CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, ready_for_review]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  pr-beta-build:
+    name: PR Beta RPM Build
+    if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'documentation')
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:43
+
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y install \
+            rpm-build rpmdevtools \
+            python3 python3-gobject gtk3 polkit systemd dnf \
+            rsync tar git findutils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build PR beta RPM
+        env:
+          TOPDIR: ${{ github.workspace }}/rpmbuild
+          DISTDIR: ${{ github.workspace }}/dist
+        run: |
+          mkdir -p "$TOPDIR" "$DISTDIR"
+          export HOME="${{ github.workspace }}"
+          mkdir -p "$HOME"/rpmbuild
+
+          VERSION="0.0.0-beta.pr${{ github.event.pull_request.number }}.${GITHUB_SHA::8}"
+          echo "Using VERSION=${VERSION}"
+
+          chmod +x src/packaging/build-rpm.sh
+          ./src/packaging/build-rpm.sh "$VERSION"
+
+          find "$HOME/rpmbuild/RPMS" -type f -name "*.rpm" -exec cp -v {} "$DISTDIR/" \;
+
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-beta-rpm-${{ github.event.pull_request.number }}
+          path: dist/*.rpm
+          if-no-files-found: error
+
+      - name: Comment artifact location on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = [
+              '✅ PR beta RPM build completed.',
+              '',
+              `Artifact: \`pr-beta-rpm-${context.payload.pull_request.number}\``,
+              `Download from this run: ${runUrl}`
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body
+            });
+
+  tag-draft-release:
+    name: Tag Build + Draft Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:43
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf -y install \
+            rpm-build rpmdevtools \
+            python3 python3-gobject gtk3 polkit systemd dnf \
+            rsync tar git findutils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build RPM from tag version
+        env:
+          TOPDIR: ${{ github.workspace }}/rpmbuild
+          DISTDIR: ${{ github.workspace }}/dist
+        run: |
+          mkdir -p "$TOPDIR" "$DISTDIR"
+          export HOME="${{ github.workspace }}"
+          mkdir -p "$HOME"/rpmbuild
+
+          VERSION="${GITHUB_REF_NAME}"
+          echo "Using VERSION=${VERSION}"
+
+          chmod +x src/packaging/build-rpm.sh
+          ./src/packaging/build-rpm.sh "$VERSION"
+
+          find "$HOME/rpmbuild/RPMS" -type f -name "*.rpm" -exec cp -v {} "$DISTDIR/" \;
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-rpm-${{ github.ref_name }}
+          path: dist/*.rpm
+          if-no-files-found: error
+
+      - name: Create draft release and attach RPMs
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ github.ref_name }}
+          files: dist/*.rpm
