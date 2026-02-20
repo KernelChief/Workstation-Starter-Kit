@@ -5,6 +5,17 @@ set -euo pipefail
 NAME="workstation-starter-kit"
 VERSION="${1:-1.0}"
 
+# RPM Version cannot contain '-'. Normalize CI/dev version strings
+# (e.g. 0.0.0-beta.pr1.abcdef12 -> 0.0.0~beta.pr1.abcdef12)
+RPM_VERSION="${VERSION//-/~}"
+
+# Replace any other unsupported chars with '.' to avoid rpmbuild parse errors.
+RPM_VERSION="$(printf '%s' "${RPM_VERSION}" | sed 's/[^[:alnum:]._+~]/./g')"
+
+if [[ "${RPM_VERSION}" != "${VERSION}" ]]; then
+  echo "Normalized VERSION for RPM: ${VERSION} -> ${RPM_VERSION}"
+fi
+
 # Ensure rpmbuild tree exists
 command -v rpmdev-setuptree >/dev/null 2>&1 || {
   echo "ERROR: rpmdevtools not installed. Install: sudo dnf install rpmdevtools" >&2
@@ -23,7 +34,7 @@ fi
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-SRC_DIR="${TMPDIR}/${NAME}-${VERSION}"
+SRC_DIR="${TMPDIR}/${NAME}-${RPM_VERSION}"
 mkdir -p "${SRC_DIR}"
 
 # Copy repo contents into tarball staging directory
@@ -38,12 +49,12 @@ rsync -a \
   --exclude "rpmbuild" \
   "${ROOT_DIR}/" "${SRC_DIR}/"
 
-TARBALL="${HOME}/rpmbuild/SOURCES/${NAME}-${VERSION}.tar.gz"
-tar -C "${TMPDIR}" -czf "${TARBALL}" "${NAME}-${VERSION}"
+TARBALL="${HOME}/rpmbuild/SOURCES/${NAME}-${RPM_VERSION}.tar.gz"
+tar -C "${TMPDIR}" -czf "${TARBALL}" "${NAME}-${RPM_VERSION}"
 
 echo "Created source tarball: ${TARBALL}"
 
-rpmbuild -ba "${SPEC}" --define "app_version ${VERSION}"
+rpmbuild -ba "${SPEC}" --define "app_version ${RPM_VERSION}"
 
 echo "Done."
 echo "RPMs are in: ${HOME}/rpmbuild/RPMS/"
