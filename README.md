@@ -9,7 +9,7 @@
 [![Buy Me A Coffee](https://img.shields.io/badge/Support-Buy%20Me%20A%20Coffee-orange?logo=buy-me-a-coffee)](https://www.buymeacoffee.com/ttheroux)
 [![Stars](https://img.shields.io/github/stars/KernelChief/alma-driver-manager?style=social)](https://github.com/KernelChief/alma-driver-manager/stargazers)
 
-A small, opinionated GTK application for **Fedora 43 KDE** that provides one-click setup for workstation tools, gaming utilities, and common desktop apps.
+A small, opinionated GTK app for **Fedora 43 KDE** that provides one-click setup for workstation tools, gaming utilities, and common desktop apps.
 
 The UI runs unprivileged and system changes are done through a **polkit-protected helper**.
 
