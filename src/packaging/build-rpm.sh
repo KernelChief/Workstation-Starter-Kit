@@ -5,9 +5,13 @@ set -euo pipefail
 NAME="workstation-starter-kit"
 VERSION="${1:-1.0}"
 
-# RPM Version cannot contain '-'. Normalize CI/dev version strings
-# (e.g. 0.0.0-beta.pr1.abcdef12 -> 0.0.0~beta.pr1.abcdef12)
-RPM_VERSION="${VERSION//-/~}"
+# Keep normal release versions as provided (e.g. v1.0.0), but convert
+# prerelease separator '-' to '~' for RPM compatibility/order.
+# Example PR/dev: 0.0.0-beta.pr1.abcdef12 -> 0.0.0~beta.pr1.abcdef12
+RPM_VERSION="${VERSION}"
+if [[ "${RPM_VERSION}" == *-* ]]; then
+  RPM_VERSION="${RPM_VERSION/-/~}"
+fi
 
 # Replace any other unsupported chars with '.' to avoid rpmbuild parse errors.
 RPM_VERSION="$(printf '%s' "${RPM_VERSION}" | sed 's/[^[:alnum:]._+~]/./g')"
