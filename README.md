@@ -40,7 +40,7 @@ Safe Execution: Uses a Polkit-authorized backend to ensure you stay in control o
 
 Go to the project releases page:
 
-https://github.com/KernelChief/alma-driver-manager/releases
+https://github.com/KernelChief/Workstation-Starter-Kit/releases
 
 Download the RPM named like:
 
