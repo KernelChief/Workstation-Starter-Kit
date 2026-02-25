@@ -125,7 +125,7 @@ jobs:
           find "$HOME/rpmbuild/RPMS" -type f -name "*.rpm" -exec cp -v {} "$DISTDIR/" \;
 
       - name: Upload RPM artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: rpm-f${{ matrix.fedora }}-kde-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.pull_request.number) || 'release' }}
           path: dist/*.rpm
