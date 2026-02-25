@@ -164,7 +164,7 @@ jobs:
 
       - name: Download Fedora 43 KDE artifacts
         if: steps.resolve_tag.outputs.do_release == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: rpm-f43-kde-release
           path: dist
