@@ -187,17 +187,11 @@ jobs:
           prerelease: ${{ contains(steps.resolve_tag.outputs.tag_name, '-rc') || contains(steps.resolve_tag.outputs.tag_name, '-beta') || contains(steps.resolve_tag.outputs.tag_name, '-alpha') }}
           generate_release_notes: false
           body: |
-            ## :tada: Workstation Starter Kit ${{ steps.resolve_tag.outputs.tag_name }}
+            ## 🎉 Workstation Starter Kit ${{ steps.resolve_tag.outputs.tag_name }}
 
-            :white_check_mark: Highlights
-            - Fedora 43 KDE RPM build
+            ### Highlights
 
-            ❤️ Special Thanks
-            - Major thanks for the icon design to **Cristian Slavik** from **NOX Visual Effects**
-              - GitHub: https://github.com/crisslavik
-              - LinkedIn: https://www.linkedin.com/in/crisslavik/
-
-            :package: Assets
+            ### Assets
             - Fedora 43 KDE RPM
 
   pr-beta-comment:
